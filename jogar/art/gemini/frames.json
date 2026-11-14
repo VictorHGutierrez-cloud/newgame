@@ -1,0 +1,52 @@
+{
+  "guard-idle": {
+    "w": 348,
+    "h": 611,
+    "anchor": 0.487
+  },
+  "guard-attack": {
+    "w": 651,
+    "h": 611,
+    "anchor": 0.433
+  },
+  "guard-run": {
+    "w": 486,
+    "h": 611,
+    "anchor": 0.603
+  },
+  "hero-idle": {
+    "w": 301,
+    "h": 629,
+    "anchor": 0.549
+  },
+  "hero-attack": {
+    "w": 694,
+    "h": 567,
+    "anchor": 0.261
+  },
+  "hero-side": {
+    "w": 366,
+    "h": 614,
+    "anchor": 0.753
+  },
+  "hero-run1": {
+    "w": 404,
+    "h": 589,
+    "anchor": 0.629
+  },
+  "hero-run2": {
+    "w": 431,
+    "h": 558,
+    "anchor": 0.659
+  },
+  "hero-jump": {
+    "w": 347,
+    "h": 614,
+    "anchor": 0.415
+  },
+  "hero-hang": {
+    "w": 311,
+    "h": 730,
+    "anchor": 0.462
+  }
+}

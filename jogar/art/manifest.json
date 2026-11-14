@@ -1,0 +1,33 @@
+{
+  "game": "Pátio",
+  "style": "Anime/cel-shaded illustration pack (não pixel art). Paleta quente de pátio ao entardecer.",
+  "pipeline": "jogar/scripts/build_anime_art.py",
+  "directory": "art/anime/",
+  "generation": "Gerado via Pillow com contornos e sombras cel-shaded.",
+  "rendering": "Canvas com imageSmoothingEnabled e sem image-rendering pixelated.",
+  "assets": [
+    { "file": "anime/hero-idle.png", "role": "viajante parado" },
+    { "file": "anime/hero-run1.png", "role": "corrida frame 1" },
+    { "file": "anime/hero-run2.png", "role": "corrida frame 2" },
+    { "file": "anime/hero-side.png", "role": "perfil correndo" },
+    { "file": "anime/hero-jump.png", "role": "pulo" },
+    { "file": "anime/hero-hang.png", "role": "borda" },
+    { "file": "anime/hero-attack.png", "role": "espada" },
+    { "file": "anime/guard-idle.png", "role": "guarda" },
+    { "file": "anime/guard-run.png", "role": "guarda andando" },
+    { "file": "anime/guard-attack.png", "role": "guarda atacando" },
+    { "file": "anime/tile-floor.png", "role": "chão" },
+    { "file": "anime/tile-beam.png", "role": "viga" },
+    { "file": "anime/tile-gate.png", "role": "grade" },
+    { "file": "anime/tile-plate.png", "role": "placa" },
+    { "file": "anime/tile-arch.png", "role": "arco final" },
+    { "file": "anime/backdrop.png", "role": "céu e muralha" },
+    { "file": "anime/torch.png", "role": "tocha" },
+    { "file": "anime/pillar.png", "role": "coluna" },
+    { "file": "anime/ivy.png", "role": "hera" },
+    { "file": "anime/window.png", "role": "janela" },
+    { "file": "anime/barrel.png", "role": "barril" },
+    { "file": "anime/crate.png", "role": "caixa" },
+    { "file": "anime/crate-x.png", "role": "caixa marcada" }
+  ]
+}

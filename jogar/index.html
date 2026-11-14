@@ -1,0 +1,1600 @@
+<!DOCTYPE html>
+<html lang="pt">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pátio</title>
+<style>
+  html, body {
+    margin: 0;
+    min-height: 100%;
+    background: #120e0c;
+    color: #f0e2cc;
+    font-family: Palatino, "Palatino Linotype", "Iowan Old Style", serif;
+  }
+  body {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wrap { width: min(960px, 100%); padding: 16px; box-sizing: border-box; }
+  h1 { font-size: 14px; font-weight: 600; letter-spacing: 0.14em; margin: 0 0 8px; text-transform: uppercase; }
+  canvas {
+    width: 100%;
+    height: auto;
+    display: block;
+    background: #000;
+    image-rendering: auto;
+    outline: none;
+    border: 1px solid #3a2c22;
+  }
+  .pad {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    justify-content: center;
+    margin-top: 12px;
+  }
+  button {
+    font: inherit;
+    font-size: 15px;
+    color: #f0e2cc;
+    background: #2a211c;
+    border: 1px solid #6d543c;
+    min-width: 64px;
+    min-height: 44px;
+    padding: 8px 12px;
+    cursor: pointer;
+  }
+  button:active { background: #4a382c; }
+  p { text-align: center; font-size: 14px; line-height: 1.45; color: #cbb89a; margin: 10px 0 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Pátio</h1>
+  <canvas id="c" width="320" height="192" tabindex="0"></canvas>
+  <div class="pad">
+    <button type="button" id="play">Jogar</button>
+    <button type="button" data-key="ArrowLeft" aria-label="Esquerda">←</button>
+    <button type="button" data-key="ArrowRight" aria-label="Direita">→</button>
+    <button type="button" data-key="ArrowUp" aria-label="Pular">Pular</button>
+    <button type="button" data-key="ArrowDown" aria-label="Soltar">Descer</button>
+    <button type="button" data-key="KeyX" aria-label="Espada">Espada</button>
+  </div>
+  <p>Setas movem. Espaço pula. X ataca. Para baixo solta da borda. As moedas contam no arco.</p>
+</div>
+<script>
+const canvas = document.getElementById("c");
+const ctx = canvas.getContext("2d");
+ctx.imageSmoothingEnabled = true;
+const TILE = 16;
+const COLS = 20;
+const ROWS = 12;
+const PW = 12;
+const PH = 24;
+const RUN = 1.65;
+const GRAVITY = 0.24;
+const JUMP = -5.05;
+const SPR_H = 58;
+const SPRITE_ANCHOR = {
+  heroIdle: 0.94,
+  heroRun1: 0.94,
+  heroRun2: 0.94,
+  heroSide: 0.94,
+  heroJump: 0.94,
+  heroHang: 0.94,
+  heroAttack: 0.94,
+  guardIdle: 0.94,
+  guardWalk: 0.94,
+  guardAttack: 0.94,
+};
+
+const DEFS = [
+  {
+    name: "O vão",
+    hint: "Corra e pule os vãos",
+    wallDress: [["torch", 6, 58, 48, 34], ["ivy", 286, 72, 28, 44]],
+    floorDress: [["barrel", 40, 128, 16, 16], ["crate", 136, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      ".....$.......$......",
+      "....................",
+      "..$......$.......$..",
+      "#####..#####...#####",
+      "#####..#####...#####",
+      "#####..#####...#####",
+    ],
+  },
+  {
+    name: "Os degraus",
+    hint: "Suba e salte o buraco",
+    wallDress: [["pillar", 214, 56, 44, 32], ["window", 18, 70, 48, 34]],
+    floorDress: [["cratex", 20, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "..........$.........",
+      "..........##........",
+      ".....$....##........",
+      ".....#######........",
+      ".....#######........",
+      "############..######",
+      "############..######",
+      "############..######",
+    ],
+  },
+  {
+    name: "A beira",
+    hint: "Se errar a borda, segure nela",
+    wallDress: [["torch", 6, 58, 48, 34], ["ivy", 250, 68, 28, 44]],
+    floorDress: [],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      ".............$......",
+      "............####....",
+      ".......+....####....",
+      ".......####.........",
+      ".......####.........",
+      "######..........####",
+      "######..........####",
+      "######..........####",
+    ],
+  },
+  {
+    name: "A guarda",
+    hint: "A espada alcança mais que o corpo",
+    guard: 10,
+    wallDress: [["torch", 6, 58, 48, 34]],
+    floorDress: [],
+    rows: [
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "........BBBBBB......",
+      "....................",
+      "......$..$..$.......",
+      "####.##########.####",
+      "####.##########.####",
+      "####.##########.####",
+    ],
+  },
+  {
+    name: "A grade",
+    hint: "Pise na placa e passe a grade",
+    wallDress: [["torch", 6, 58, 48, 34], ["window", 96, 78, 48, 34]],
+    floorDress: [["barrel", 20, 128, 16, 16], ["crate", 48, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      ".............AA.....",
+      ".............AA.....",
+      "..$..........AA.$...",
+      "....S........AA.....",
+      "####################",
+      "####################",
+      "####################",
+    ],
+  },
+  {
+    name: "O corredor",
+    hint: "Corra sem cair no fim",
+    wallDress: [["torch", 6, 58, 48, 34], ["window", 200, 70, 48, 34]],
+    floorDress: [["crate", 72, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      ".........$..........",
+      "....................",
+      "....................",
+      "..$............$....",
+      "####............####",
+      "####............####",
+      "####################",
+      "####################",
+    ],
+  },
+  {
+    name: "A subida",
+    hint: "Suba antes de saltar",
+    wallDress: [["pillar", 12, 56, 44, 32], ["ivy", 270, 72, 28, 44]],
+    floorDress: [],
+    rows: [
+      "....................",
+      "....................",
+      "..........$.........",
+      "..........####......",
+      ".......########.....",
+      "....###########.....",
+      "...#############....",
+      "..###############...",
+      ".#################..",
+      "####################",
+      "####################",
+      "####################",
+    ],
+  },
+  {
+    name: "Dupla guarda",
+    hint: "Separe os dois antes da espada",
+    guards: [
+      { col: 6, min: 4 * 16, max: 8 * 16 },
+      { col: 14, min: 12 * 16, max: 17 * 16 },
+    ],
+    wallDress: [["torch", 6, 58, 48, 34]],
+    floorDress: [["barrel", 100, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "......$....$........",
+      "....................",
+      "....................",
+      "####.##########.####",
+      "####.##########.####",
+      "####.##########.####",
+    ],
+  },
+  {
+    name: "O poço",
+    hint: "Use a borda no vão largo",
+    wallDress: [["torch", 6, 58, 48, 34], ["ivy", 286, 72, 28, 44]],
+    floorDress: [],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "...$...........$....",
+      "....................",
+      "....####....####....",
+      "....................",
+      "....................",
+      "####################",
+      "####............####",
+      "####............####",
+      "####################",
+    ],
+  },
+  {
+    name: "O arco",
+    hint: "Passe pela última grade",
+    wallDress: [["torch", 6, 58, 48, 34], ["window", 96, 78, 48, 34]],
+    floorDress: [["barrel", 20, 128, 16, 16], ["crate", 180, 128, 16, 16]],
+    rows: [
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      "....................",
+      ".............AA.....",
+      ".............AA.....",
+      "....$........AA.$...",
+      "....S........AA...X.",
+      "####################",
+      "####################",
+      "####################",
+    ],
+  },
+];
+
+for (const def of DEFS) {
+  if (def.rows.length !== ROWS || def.rows.some((row) => row.length !== COLS)) {
+    throw new Error("Mapa fora da medida: " + def.name);
+  }
+}
+
+const ART_LIST = [
+  ["heroIdle", "art/anime/hero-idle.png"],
+  ["heroRun1", "art/anime/hero-run1.png"],
+  ["heroRun2", "art/anime/hero-run2.png"],
+  ["heroSide", "art/anime/hero-side.png"],
+  ["heroJump", "art/anime/hero-jump.png"],
+  ["heroHang", "art/anime/hero-hang.png"],
+  ["heroAttack", "art/anime/hero-attack.png"],
+  ["guardIdle", "art/anime/guard-idle.png"],
+  ["guardWalk", "art/anime/guard-run.png"],
+  ["guardAttack", "art/anime/guard-attack.png"],
+  ["floor", "art/anime/tile-floor.png"],
+  ["beam", "art/anime/tile-beam.png"],
+  ["gate", "art/anime/tile-gate.png"],
+  ["plate", "art/anime/tile-plate.png"],
+  ["arch", "art/anime/tile-arch.png"],
+  ["backdrop", "art/anime/backdrop.png"],
+  ["torch", "art/anime/torch.png"],
+  ["pillar", "art/anime/pillar.png"],
+  ["ivy", "art/anime/ivy.png"],
+  ["window", "art/anime/window.png"],
+  ["crate", "art/anime/crate.png"],
+  ["cratex", "art/anime/crate-x.png"],
+  ["barrel", "art/anime/barrel.png"],
+];
+
+const art = {};
+const artState = { ready: 0, total: ART_LIST.length };
+
+function punchMagenta(img) {
+  const w = img.naturalWidth || img.width;
+  const h = img.naturalHeight || img.height;
+  if (!w || !h) return null;
+  const off = document.createElement("canvas");
+  off.width = w;
+  off.height = h;
+  const g = off.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  try {
+    const image = g.getImageData(0, 0, w, h);
+    const data = image.data;
+    let keyed = false;
+    for (let i = 0; i < data.length; i += 4) {
+      if (data[i] >= 245 && data[i + 1] <= 12 && data[i + 2] >= 245 && data[i + 3] > 20) {
+        data[i + 3] = 0;
+        keyed = true;
+      }
+    }
+    if (keyed) g.putImageData(image, 0, 0);
+  } catch (err) {
+    return img;
+  }
+  return off;
+}
+
+function loadArt() {
+  for (const [key, src] of ART_LIST) {
+    const img = new Image();
+    img.onload = () => {
+      art[key] = punchMagenta(img);
+      artState.ready += 1;
+    };
+    img.onerror = () => {
+      art[key] = null;
+      artState.ready += 1;
+    };
+    img.src = src;
+  }
+}
+
+const held = {};
+const prev = {};
+const queued = {};
+const KEYS = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Space", "KeyX", "KeyZ", "Enter"];
+
+const player = {
+  x: 16, y: 120, vx: 0, vy: 0, facing: 1, attack: 0, hang: 0,
+  coyote: 0, buffer: 0, cut: false, grounded: false, prevY: 120,
+  hangCol: 0, hangTop: 0, hangDelay: 0,
+};
+const state = {
+  mode: "title",
+  room: 0,
+  hp: 3,
+  coins: 0,
+  totalCoins: 0,
+  time: 300 * 60,
+  inv: 0,
+  shake: 0,
+  hintT: 0,
+  msg: "",
+  tick: 0,
+  grabLock: 0,
+  fade: 0,
+  transition: null,
+  hitstop: 0,
+};
+const motes = [];
+let rooms = [];
+let audioCtx = null;
+let lastTime = 0;
+let accumulator = 0;
+const STEP = 1000 / 60;
+
+function solidTile(ch) {
+  return ch === "#" || ch === "A" || ch === "B";
+}
+
+function standSurface(grid, col) {
+  if (col < 0 || col >= COLS) return null;
+  let best = null;
+  for (let r = 0; r < ROWS; r++) {
+    if (!solidTile(grid[r][col])) continue;
+    if (r > 0 && solidTile(grid[r - 1][col])) continue;
+    const top = r * TILE;
+    const head = top - PH;
+    if (head < 0) continue;
+    const r0 = Math.floor(head / TILE);
+    const r1 = Math.floor((top - 0.01) / TILE);
+    let blocked = false;
+    for (let rr = r0; rr <= r1; rr++) {
+      if (rr < 0 || solidTile(grid[rr][col])) blocked = true;
+    }
+    if (blocked) continue;
+    if (best === null || top > best) best = top;
+  }
+  return best;
+}
+
+function cloneRooms() {
+  const built = DEFS.map((def) => {
+    const grid = def.rows.map((row) => row.split(""));
+    const guardSpecs = def.guards
+      || (def.guard != null ? [{ col: def.guard, min: 8 * TILE, max: 14 * TILE - PW }] : []);
+    const guards = [];
+    for (const spec of guardSpecs) {
+      const col = spec.col;
+      const surface = standSurface(grid, col);
+      guards.push({
+        x: col * TILE + 2,
+        y: (surface == null ? 9 * TILE : surface) - PH,
+        min: spec.min ?? Math.max(0, col * TILE - 3 * TILE),
+        max: spec.max ?? Math.min(COLS * TILE - PW, col * TILE + 3 * TILE),
+        facing: -1,
+        dir: -1,
+        alive: true,
+        attack: 0,
+        cool: 40,
+        moving: false,
+        dying: 0,
+      });
+    }
+    return {
+      name: def.name,
+      hint: def.hint,
+      grid,
+      guards,
+      pickups: spawnPickups(grid),
+      wallDress: def.wallDress || [],
+      floorDress: def.floorDress || [],
+      platePressed: false,
+      plateSink: 0,
+      gateRise: 0,
+    };
+  });
+  state.totalCoins = built.reduce((sum, room) => {
+    return sum + room.pickups.filter((item) => item.kind === "coin").length;
+  }, 0);
+  return built;
+}
+
+function spawnPickups(grid) {
+  const pickups = [];
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const ch = grid[r][c];
+      if (ch !== "$" && ch !== "+") continue;
+      pickups.push({
+        x: c * TILE + 3,
+        y: r * TILE + 4,
+        kind: ch === "$" ? "coin" : "heart",
+        taken: false,
+      });
+      grid[r][c] = ".";
+    }
+  }
+  return pickups;
+}
+
+function tileAt(grid, c, r) {
+  if (r < 0 || c < 0 || c >= COLS || r >= ROWS) return "";
+  return grid[r][c];
+}
+
+function blocks(c, r) {
+  const room = rooms[state.room];
+  if (r < 0) return true;
+  if (r >= ROWS) return false;
+  if (c < 0) return state.room === 0;
+  if (c >= COLS) return state.room === rooms.length - 1;
+  return solidTile(room.grid[r][c]);
+}
+
+function overlaps(x, y, w, h) {
+  const c0 = Math.floor(x / TILE);
+  const c1 = Math.floor((x + w - 0.01) / TILE);
+  const r0 = Math.floor(y / TILE);
+  const r1 = Math.floor((y + h - 0.01) / TILE);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      if (blocks(c, r)) return true;
+    }
+  }
+  return false;
+}
+
+function isGrounded() {
+  if (player.hang) return false;
+  if (overlaps(player.x, player.y, PW, PH)) return false;
+  return overlaps(player.x, player.y + 1, PW, PH);
+}
+
+function footing(grid, x, y) {
+  const c0 = Math.floor(x / TILE);
+  const c1 = Math.floor((x + PW - 0.01) / TILE);
+  if (c0 < 0 || c1 >= COLS) return false;
+  for (let c = c0; c <= c1; c++) {
+    const surface = standSurface(grid, c);
+    if (surface == null || Math.abs(y + PH - surface) > 2) return false;
+  }
+  return true;
+}
+
+function moveX(ent, amount) {
+  const sign = Math.sign(amount);
+  let left = Math.abs(amount);
+  let guard = 0;
+  while (left > 1e-4 && guard++ < 16) {
+    const step = Math.min(1, left);
+    ent.x += step * sign;
+    if (overlaps(ent.x, ent.y, PW, PH)) {
+      ent.x -= step * sign;
+      return true;
+    }
+    left -= step;
+  }
+  return false;
+}
+
+function moveY(ent, amount) {
+  const sign = Math.sign(amount);
+  if (!sign) return "";
+  let left = Math.abs(amount);
+  let guard = 0;
+  while (left > 1e-4 && guard++ < 16) {
+    const step = Math.min(1, left);
+    ent.y += step * sign;
+    if (overlaps(ent.x, ent.y, PW, PH)) {
+      ent.y -= step * sign;
+      return sign > 0 ? "floor" : "ceiling";
+    }
+    left -= step;
+  }
+  return "";
+}
+
+function snapDown(ent, yStart) {
+  const feetStart = yStart + PH;
+  const feetEnd = ent.y + PH;
+  if (feetEnd + 0.01 < feetStart) return false;
+  const c0 = Math.floor(ent.x / TILE);
+  const c1 = Math.floor((ent.x + PW - 0.01) / TILE);
+  let surface = null;
+  for (let c = c0; c <= c1; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (!blocks(c, r) || blocks(c, r - 1)) continue;
+      const top = r * TILE;
+      if (top + 0.01 < feetStart) continue;
+      if (top > feetEnd + 1) continue;
+      if (surface === null || top < surface) surface = top;
+    }
+  }
+  if (surface === null) return false;
+  const ny = surface - PH;
+  if (overlaps(ent.x, ny, PW, PH)) return false;
+  ent.y = ny;
+  return true;
+}
+
+function releaseOverlap(ent, preferDown) {
+  if (!overlaps(ent.x, ent.y, PW, PH)) return false;
+  const start = ent.y;
+  const dirs = preferDown ? [1, -1] : [-1, 1];
+  for (const dir of dirs) {
+    for (let i = 1; i <= 64; i++) {
+      const ny = start + dir * i;
+      if (!overlaps(ent.x, ny, PW, PH)) {
+        ent.y = ny;
+        return true;
+      }
+    }
+  }
+  return false;
+}
+
+function plantFeet(ent) {
+  const c0 = Math.floor(ent.x / TILE);
+  const c1 = Math.floor((ent.x + PW - 0.01) / TILE);
+  const feet = ent.y + PH;
+  let surface = null;
+  for (let c = c0; c <= c1; c++) {
+    for (let r = 0; r < ROWS; r++) {
+      if (!blocks(c, r) || blocks(c, r - 1)) continue;
+      const top = r * TILE;
+      if (top < feet - 0.05 || top > feet + 1.25) continue;
+      if (surface === null || top < surface) surface = top;
+    }
+  }
+  if (surface === null) return false;
+  const ny = surface - PH;
+  if (overlaps(ent.x, ny, PW, PH)) return false;
+  ent.y = ny;
+  return true;
+}
+
+function downHeld() {
+  return !!held.ArrowDown;
+}
+function jumpHeld() {
+  return !!held.ArrowUp || !!held.Space;
+}
+function pressed(code) {
+  return !!queued[code] || (!!held[code] && !prev[code]);
+}
+function endFrame() {
+  for (const code of KEYS) {
+    prev[code] = !!held[code];
+    queued[code] = false;
+  }
+}
+
+function beep(freq, dur, type, gain) {
+  if (!audioCtx) return;
+  const osc = audioCtx.createOscillator();
+  const amp = audioCtx.createGain();
+  osc.type = type || "square";
+  osc.frequency.value = freq;
+  amp.gain.value = gain || 0.03;
+  osc.connect(amp);
+  amp.connect(audioCtx.destination);
+  osc.start();
+  amp.gain.exponentialRampToValueAtTime(0.0001, audioCtx.currentTime + dur);
+  osc.stop(audioCtx.currentTime + dur);
+}
+
+function armAudio() {
+  if (!audioCtx) audioCtx = new AudioContext();
+  if (audioCtx.state === "suspended") audioCtx.resume();
+}
+
+function dust(x, y) {
+  const kicks = [-0.7, -0.25, 0.25, 0.7];
+  for (let i = 0; i < kicks.length; i++) {
+    motes.push({ x, y, vx: kicks[i], vy: -0.55 - (i % 2) * 0.25, life: 12 });
+  }
+}
+
+function placeAt(side) {
+  const room = rooms[state.room];
+  player.hang = 0;
+  player.attack = 0;
+  player.vx = 0;
+  player.vy = 0;
+  player.cut = false;
+  player.x = side === "right" ? COLS * TILE - PW - 6 : 8;
+  let col = Math.max(0, Math.min(COLS - 1, Math.floor((player.x + PW / 2) / TILE)));
+  let surface = standSurface(room.grid, col);
+  if (surface == null) {
+    const order = side === "right" ? [...Array(COLS).keys()].reverse() : [...Array(COLS).keys()];
+    for (const c of order) {
+      const found = standSurface(room.grid, c);
+      if (found != null) {
+        surface = found;
+        col = c;
+        player.x = c * TILE + Math.max(0, (TILE - PW) / 2);
+        break;
+      }
+    }
+  }
+  player.y = (surface == null ? 9 * TILE : surface) - PH;
+  releaseOverlap(player, false);
+  plantFeet(player);
+  player.grounded = true;
+  player.coyote = 7;
+  player.prevY = player.y;
+  state.hintT = 150;
+  state.grabLock = 8;
+  motes.length = 0;
+}
+
+function resetGame() {
+  rooms = cloneRooms();
+  state.mode = "play";
+  state.room = 0;
+  state.hp = 3;
+  state.time = 300 * 60;
+  state.inv = 0;
+  state.coins = 0;
+  state.msg = "";
+  state.tick = 0;
+  state.fade = 1;
+  state.transition = { kind: "start", phase: "in", t: 0 };
+  player.facing = 1;
+  placeAt("left");
+}
+
+function hurt(msg) {
+  if (state.inv > 0 || state.mode !== "play") return false;
+  state.hp -= 1;
+  state.inv = 80;
+  state.shake = 5;
+  player.hang = 0;
+  beep(90, 0.18, "sawtooth", 0.04);
+  if (state.hp <= 0) {
+    state.mode = "dying";
+    state.msg = msg;
+    state.transition = { kind: "dead", phase: "out", t: 0 };
+    return false;
+  }
+  player.vy = -2.2;
+  player.vx = -player.facing * 1.7;
+  return true;
+}
+
+function rectsOverlap(a, b) {
+  return a.x < b.x + b.w && a.x + a.w > b.x && a.y < b.y + b.h && a.y + a.h > b.y;
+}
+
+function swordBox(ent, reach) {
+  return {
+    x: ent.facing > 0 ? ent.x + PW - 2 : ent.x - reach + 2,
+    y: ent.y + 8,
+    w: reach,
+    h: 8,
+  };
+}
+
+function tryGrab() {
+  if (player.hang || downHeld() || state.grabLock > 0 || player.vy < 0) return;
+  if (isGrounded()) return;
+  const dir = player.vx !== 0 ? Math.sign(player.vx) : player.facing;
+  if (!dir) return;
+  const y0 = Math.min(player.y, player.prevY);
+  const y1 = Math.max(player.y, player.prevY);
+  for (let dist = 1; dist <= 10; dist++) {
+    const probe = dir > 0 ? player.x + PW - 1 + dist : player.x + 1 - dist;
+    const col = Math.floor(probe / TILE);
+    if (col < 0 || col >= COLS) continue;
+    const rStart = Math.floor(y0 / TILE) - 1;
+    const rEnd = Math.floor((y1 + 16) / TILE);
+    for (let r = rStart; r <= rEnd; r++) {
+      if (r < 0 || r >= ROWS) continue;
+      if (!blocks(col, r) || blocks(col, r - 1)) continue;
+      const top = r * TILE;
+      if (y1 + PH < top + 2) continue;
+      if (y0 > top + 8) continue;
+      const nx = dir > 0 ? col * TILE - PW : col * TILE + TILE;
+      const ny = top - 10;
+      if (overlaps(nx, ny, PW, PH)) continue;
+      player.hang = 1;
+      player.hangCol = col;
+      player.hangTop = top;
+      player.x = nx;
+      player.y = ny;
+      player.vx = 0;
+      player.vy = 0;
+      player.facing = dir;
+      player.grounded = false;
+      player.hangDelay = 6;
+      beep(420, 0.05, "square", 0.02);
+      return;
+    }
+  }
+}
+
+function climb() {
+  const top = player.hangTop;
+  const col = player.hangCol;
+  const options = [
+    player.facing > 0 ? col * TILE + 2 : col * TILE + TILE - PW - 2,
+    col * TILE + (TILE - PW) / 2,
+  ];
+  for (const nx of options) {
+    const ny = top - PH;
+    if (nx < -2 || nx > COLS * TILE - PW + 2) continue;
+    if (overlaps(nx, ny, PW, PH)) continue;
+    player.x = nx;
+    player.y = ny;
+    player.hang = 0;
+    player.vy = 0;
+    player.vx = 0;
+    player.cut = false;
+    player.grounded = true;
+    player.coyote = 7;
+    state.grabLock = 8;
+    beep(520, 0.06, "square", 0.02);
+    return;
+  }
+}
+
+function updatePlayer() {
+  player.prevY = player.y;
+  if (pressed("ArrowUp") || pressed("Space")) player.buffer = 7;
+  else if (player.buffer > 0) player.buffer -= 1;
+
+  if (player.hang) {
+    player.vx = 0;
+    player.vy = 0;
+    player.grounded = false;
+    if (player.hangDelay > 0) player.hangDelay -= 1;
+    if (downHeld()) {
+      player.hang = 0;
+      player.hangDelay = 0;
+      player.vy = 0.8;
+      state.grabLock = 12;
+    } else if (player.hangDelay <= 0 && (pressed("ArrowUp") || pressed("Space"))) {
+      climb();
+    }
+    return;
+  }
+
+  const left = !!held.ArrowLeft;
+  const right = !!held.ArrowRight;
+  if (left && !right) {
+    player.vx = -RUN;
+    player.facing = -1;
+  } else if (right && !left) {
+    player.vx = RUN;
+    player.facing = 1;
+  } else if (isGrounded()) {
+    player.vx = 0;
+  }
+
+  if (isGrounded()) player.coyote = 7;
+  else if (player.coyote > 0) player.coyote -= 1;
+
+  const startedGrounded = player.coyote > 0 && isGrounded();
+  if (player.buffer > 0 && player.coyote > 0) {
+    player.vy = JUMP;
+    player.coyote = 0;
+    player.buffer = 0;
+    player.cut = true;
+    beep(660, 0.06, "square", 0.025);
+  } else if (player.cut && player.vy < -1.4 && !jumpHeld()) {
+    player.vy *= 0.45;
+    player.cut = false;
+  }
+
+  const fallSpeed = player.vy;
+  player.vy += GRAVITY;
+  if (player.vy > 5.2) player.vy = 5.2;
+
+  const yStart = player.y;
+  if (moveX(player, player.vx)) player.vx = 0;
+  const hitY = moveY(player, player.vy);
+  let landed = false;
+  if (player.vy > 0) landed = snapDown(player, yStart) || hitY === "floor";
+  if (overlaps(player.x, player.y, PW, PH)) {
+    releaseOverlap(player, player.vy < 0);
+    if (player.vy >= 0 && plantFeet(player)) landed = true;
+  } else if (player.vy >= 0 && hitY === "floor") {
+    plantFeet(player);
+  }
+  if (landed && player.vy > 0) {
+    if (fallSpeed > 1.25 && !startedGrounded) dust(player.x + PW / 2, player.y + PH);
+    player.vy = 0;
+    player.cut = false;
+  } else if (hitY === "ceiling" && player.vy < 0) {
+    player.vy = 0;
+    player.cut = false;
+  }
+  player.grounded = isGrounded();
+  tryGrab();
+
+  if (player.grounded && Math.abs(player.vx) > 0.2 && state.tick % 8 === 0) {
+    motes.push({
+      x: player.x + PW / 2,
+      y: player.y + PH - 1,
+      vx: -player.facing * 0.35,
+      vy: -0.15,
+      life: 8,
+    });
+  }
+
+  if ((pressed("KeyX") || pressed("KeyZ")) && player.attack === 0 && !player.hang) {
+    player.attack = 16;
+    beep(180, 0.07, "square", 0.03);
+  }
+  if (player.attack > 0) player.attack -= 1;
+
+  takePickups();
+
+  const room = rooms[state.room];
+  const marks = [];
+  const c0 = Math.floor(player.x / TILE);
+  const c1 = Math.floor((player.x + PW - 0.01) / TILE);
+  const r0 = Math.floor(player.y / TILE);
+  const r1 = Math.floor((player.y + PH - 0.01) / TILE);
+  for (let r = r0; r <= r1; r++) {
+    for (let c = c0; c <= c1; c++) {
+      if (r < 0 || r >= ROWS || c < 0 || c >= COLS) continue;
+      marks.push(room.grid[r][c]);
+    }
+  }
+  if (marks.includes("S") && !room.platePressed) {
+    room.platePressed = true;
+    room.gateRise = 1;
+    beep(520, 0.12, "triangle", 0.04);
+    state.shake = 2;
+  }
+  if (marks.includes("X") && !state.transition) {
+    state.transition = { kind: "win", phase: "out", t: 0 };
+  }
+  if (player.y > ROWS * TILE) {
+    const alive = hurt("O vão levou você");
+    if (alive) state.transition = { kind: "pit", phase: "out", t: 0, side: "left" };
+    return;
+  }
+
+  if (state.transition) return;
+  if (player.x > COLS * TILE - 2 && state.room < rooms.length - 1) {
+    state.transition = { kind: "room", phase: "out", t: 0, room: state.room + 1, side: "left" };
+  } else if (player.x < -PW + 2 && state.room > 0) {
+    state.transition = { kind: "room", phase: "out", t: 0, room: state.room - 1, side: "right" };
+  }
+}
+
+function stepGuard(guard, dx) {
+  const nx = guard.x + dx;
+  if (nx < guard.min || nx > guard.max) return false;
+  if (!footing(rooms[state.room].grid, nx, guard.y)) return false;
+  guard.x = nx;
+  guard.moving = true;
+  return true;
+}
+
+function updateGuard(guard) {
+  guard.moving = false;
+  if (guard.dying > 0) {
+    guard.dying -= 1;
+    guard.y += 0.4;
+    if (guard.dying <= 0) guard.alive = false;
+    return;
+  }
+  if (!guard.alive) return;
+  const grid = rooms[state.room].grid;
+  const col = Math.max(0, Math.min(COLS - 1, Math.floor((guard.x + PW / 2) / TILE)));
+  const surface = standSurface(grid, col);
+  if (surface != null) guard.y = surface - PH;
+
+  const dist = player.x + PW / 2 - (guard.x + PW / 2);
+  const same = Math.abs(player.y - guard.y) < 18 && state.mode === "play";
+  if (guard.cool > 0) guard.cool -= 1;
+  if (same && Math.abs(dist) < 78 && guard.attack === 0) {
+    guard.facing = dist >= 0 ? 1 : -1;
+    if (Math.abs(dist) > 22) {
+      const dx = guard.facing * 0.55;
+      if (!stepGuard(guard, dx)) guard.dir = guard.facing;
+    } else if (guard.cool === 0) {
+      guard.attack = 28;
+      guard.cool = 56;
+    }
+  } else if (guard.attack === 0) {
+    guard.facing = guard.dir;
+    if (!stepGuard(guard, guard.dir * 0.4)) guard.dir *= -1;
+  }
+  if (guard.x < guard.min) {
+    guard.x = guard.min;
+    guard.dir = 1;
+  }
+  if (guard.x > guard.max) {
+    guard.x = guard.max;
+    guard.dir = -1;
+  }
+
+  const body = { x: guard.x, y: guard.y, w: PW, h: PH };
+  const playerBody = { x: player.x, y: player.y, w: PW, h: PH };
+  if (player.attack > 4 && player.attack < 12) {
+    if (rectsOverlap(swordBox(player, 22), body) && guard.dying === 0) {
+      guard.dying = 16;
+      state.hitstop = 4;
+      state.shake = 3;
+      dust(guard.x + PW / 2, guard.y + PH);
+      beep(140, 0.1, "square", 0.04);
+    }
+  }
+  if (!guard.alive) return;
+  let struck = false;
+  if (guard.attack > 0) {
+    guard.attack -= 1;
+    if (guard.attack < 16 && guard.attack > 8 && rectsOverlap(swordBox(guard, 14), playerBody)) {
+      struck = true;
+    }
+  }
+  if (struck || rectsOverlap(body, playerBody)) hurt("A guarda acertou");
+}
+
+function takePickups() {
+  const room = rooms[state.room];
+  const body = { x: player.x, y: player.y, w: PW, h: PH };
+  for (const item of room.pickups) {
+    if (item.taken) continue;
+    if (!rectsOverlap(body, { x: item.x, y: item.y, w: 10, h: 10 })) continue;
+    if (item.kind === "heart" && state.hp >= 3) continue;
+    item.taken = true;
+    if (item.kind === "coin") {
+      state.coins += 1;
+      beep(880, 0.05, "square", 0.025);
+    } else {
+      state.hp += 1;
+      beep(640, 0.08, "triangle", 0.04);
+    }
+    dust(item.x + 4, item.y + 6);
+  }
+}
+
+function stepTransition() {
+  const tr = state.transition;
+  tr.t += 1;
+  const outFrames = 10;
+  const inFrames = 12;
+  if (tr.phase === "out") {
+    state.fade = Math.min(1, tr.t / outFrames);
+    if (tr.t < outFrames) return;
+    if (tr.kind === "room") {
+      state.room = tr.room;
+      placeAt(tr.side);
+    } else if (tr.kind === "pit") {
+      placeAt(tr.side || "left");
+    } else if (tr.kind === "dead") {
+      state.mode = "dead";
+    } else if (tr.kind === "win") {
+      state.mode = "win";
+      beep(523, 0.12, "square", 0.03);
+      setTimeout(() => beep(659, 0.12, "square", 0.03), 120);
+      setTimeout(() => beep(784, 0.2, "square", 0.03), 240);
+    }
+    tr.phase = "in";
+    tr.t = 0;
+    state.fade = 1;
+    return;
+  }
+  state.fade = Math.max(0, 1 - tr.t / inFrames);
+  if (tr.t >= inFrames) {
+    state.fade = 0;
+    state.transition = null;
+  }
+}
+
+function stepRoomMechanics() {
+  const room = rooms[state.room];
+  if (!room) return;
+  if (room.platePressed && room.plateSink < 2) room.plateSink += 1;
+  if (room.gateRise > 0) {
+    room.gateRise += 1;
+    if (room.gateRise > 12) {
+      for (let r = 0; r < ROWS; r++) {
+        for (let c = 0; c < COLS; c++) {
+          if (room.grid[r][c] === "A") room.grid[r][c] = ".";
+        }
+      }
+      room.gateRise = 0;
+    }
+  }
+}
+
+function updateMotes() {
+  for (let i = motes.length - 1; i >= 0; i--) {
+    const mote = motes[i];
+    mote.x += mote.vx;
+    mote.y += mote.vy;
+    mote.life -= 1;
+    if (mote.life <= 0) motes.splice(i, 1);
+  }
+}
+
+function update() {
+  if (state.hitstop > 0) {
+    state.hitstop -= 1;
+    endFrame();
+    return;
+  }
+
+  state.tick += 1;
+  if (state.inv > 0) state.inv -= 1;
+  if (state.grabLock > 0) state.grabLock -= 1;
+  if (state.hintT > 0) state.hintT -= 1;
+  if (state.shake > 0) state.shake *= 0.8;
+  updateMotes();
+
+  if (state.transition) {
+    stepTransition();
+    endFrame();
+    return;
+  }
+
+  if (state.mode !== "play") {
+    if (pressed("Enter") || (state.mode === "title" && pressed("Space"))) resetGame();
+    endFrame();
+    return;
+  }
+
+  state.time -= 1;
+  if (state.time <= 0) {
+    state.mode = "dead";
+    state.msg = "O tempo acabou";
+    endFrame();
+    return;
+  }
+
+  stepRoomMechanics();
+  updatePlayer();
+  if (state.mode === "play" && !state.transition) {
+    for (const guard of rooms[state.room].guards) updateGuard(guard);
+  }
+  endFrame();
+}
+
+function roundRect(x, y, w, h, color) {
+  ctx.fillStyle = color;
+  ctx.fillRect(Math.round(x), Math.round(y), w, h);
+}
+
+function drawSprite(ent, img, key) {
+  const sw = img.width || img.naturalWidth;
+  const sh = img.height || img.naturalHeight;
+  const dh = SPR_H;
+  const dw = Math.max(8, Math.round(sw * (dh / sh)));
+  const anchor = SPRITE_ANCHOR[key] == null ? 0.5 : SPRITE_ANCHOR[key];
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  ctx.translate(Math.round(ent.x + PW / 2), Math.round(ent.y + PH));
+  ctx.scale((ent.facing || 1) < 0 ? -1 : 1, 1);
+  ctx.drawImage(img, Math.round(-dw * anchor), -dh, dw, dh);
+  ctx.restore();
+}
+
+function drawActor(ent, kind, attacking) {
+  const sprite = kind === "guard" ? guardSprite(ent, attacking) : heroSprite(attacking);
+  if (sprite) {
+    drawSprite(ent, sprite.img, sprite.key);
+    return;
+  }
+  ctx.save();
+  ctx.translate(Math.round(ent.x + PW / 2), Math.round(ent.y));
+  ctx.scale(ent.facing || 1, 1);
+  const bob = !ent.hang && Math.abs(ent.vx) > 0.2 && overlaps(ent.x, ent.y + 1, PW, PH)
+    ? (Math.floor(state.tick / 4) % 2 === 0 ? 0 : 1)
+    : 0;
+  const skin = kind === "guard" ? "#e2b090" : "#f0c4a4";
+  const cloth = kind === "guard" ? "#7c2430" : "#1f7a72";
+  const clothDark = kind === "guard" ? "#4e141c" : "#145650";
+  const metal = kind === "guard" ? "#d2b072" : "#d7dbe0";
+  ctx.translate(-PW / 2, bob);
+  roundRect(2, 1, 8, 3, kind === "guard" ? "#2a2420" : "#1c1c1c");
+  roundRect(2, 3, 8, 6, skin);
+  roundRect(3, 5, 2, 2, "#1a1a1a");
+  roundRect(7, 5, 2, 2, "#1a1a1a");
+  roundRect(1, 9, 10, 8, cloth);
+  roundRect(1, 15, 10, 2, clothDark);
+  const step = Math.floor(state.tick / 5) % 2;
+  if (ent.hang) {
+    roundRect(0, 8, 3, 2, skin);
+    roundRect(9, 8, 3, 2, skin);
+    roundRect(3, 17, 2, 6, "#241c18");
+    roundRect(7, 17, 2, 6, "#241c18");
+  } else if (Math.abs(ent.vx) > 0.2 && overlaps(ent.x, ent.y + 1, PW, PH)) {
+    roundRect(2, 17, 3, 6, "#241c18");
+    roundRect(step ? 8 : 6, 17, 3, 6, "#241c18");
+  } else {
+    roundRect(2, 17, 3, 6, "#241c18");
+    roundRect(7, 17, 3, 6, "#241c18");
+  }
+  if (attacking) {
+    roundRect(10, 10, 16, 2, metal);
+    roundRect(24, 8, 2, 6, metal);
+  } else {
+    roundRect(10, 12, 7, 2, metal);
+  }
+  if (kind === "guard") roundRect(1, 0, 10, 3, "#c6a15e");
+  ctx.restore();
+}
+
+function useArt(key) {
+  return art[key] ? { img: art[key], key } : null;
+}
+
+function heroSprite(attacking) {
+  if (attacking) return useArt("heroAttack");
+  if (player.hang) return useArt("heroHang");
+  if (!player.grounded && !player.hang) return useArt("heroJump");
+  if (player.grounded && Math.abs(player.vx) > 0.2) {
+    const frame = Math.floor(state.tick / 6) % 3;
+    const key = frame === 0 ? "heroRun1" : frame === 1 ? "heroSide" : "heroRun2";
+    return useArt(key) || useArt("heroRun1") || useArt("heroRun2");
+  }
+  return useArt("heroIdle");
+}
+
+function guardSprite(ent, attacking) {
+  if (attacking) return useArt("guardAttack");
+  if (ent.moving) return useArt("guardWalk");
+  return useArt("guardIdle");
+}
+
+function blit(img, x, y, w, h) {
+  if (!img) return false;
+  const prev = ctx.imageSmoothingEnabled;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(img, x, y, w, h);
+  ctx.imageSmoothingEnabled = prev;
+  return true;
+}
+
+function drawRoom() {
+  if (art.backdrop) {
+    ctx.drawImage(art.backdrop, 0, 0, 320, 192);
+  } else {
+    const sky = ctx.createLinearGradient(0, 0, 0, 192);
+    sky.addColorStop(0, "#3c241c");
+    sky.addColorStop(1, "#1a120e");
+    ctx.fillStyle = sky;
+    ctx.fillRect(0, 0, 320, 192);
+    for (let i = 0; i < 5; i++) {
+      ctx.fillStyle = "rgba(80, 48, 32, 0.35)";
+      ctx.fillRect(20 + i * 64, 28, 28, 120);
+      ctx.fillStyle = "rgba(232, 196, 140, 0.08)";
+      ctx.fillRect(28 + i * 64, 36, 12, 18);
+    }
+  }
+
+  const room = rooms[state.room];
+  for (const [key, x, y, w, h] of room.wallDress || []) {
+    blit(art[key], x, y, w, h);
+  }
+  const gateLift = room.gateRise > 0 ? Math.floor((room.gateRise / 12) * TILE) : 0;
+  for (let r = 0; r < ROWS; r++) {
+    for (let c = 0; c < COLS; c++) {
+      const ch = room.grid[r][c];
+      const x = c * TILE;
+      const y = r * TILE;
+      if (ch === "#" || ch === "B" || ch === "A") {
+        const drawY = ch === "A" ? y - gateLift : y;
+        const img = ch === "A" ? art.gate : ch === "B" ? art.beam : art.floor;
+        if (!blit(img, x, drawY, TILE, TILE)) {
+          const top = r === 0 || !solidTile(room.grid[r - 1][c]);
+          if (ch === "B") {
+            const shade = (c + r) % 2;
+            ctx.fillStyle = shade ? "#4e3828" : "#3f2c20";
+            ctx.fillRect(x, drawY, TILE, TILE);
+            ctx.fillStyle = "#2a1c14";
+            ctx.fillRect(x, drawY + TILE - 3, TILE, 3);
+          } else {
+            const shade = (c * 3 + r) % 3;
+            ctx.fillStyle = ch === "A" ? "#6a5428" : ["#8d6842", "#7b5a38", "#6c4e32"][shade];
+            ctx.fillRect(x, drawY, TILE, TILE);
+            if (top) {
+              ctx.fillStyle = ch === "A" ? "#c6a15e" : "#e0c088";
+              ctx.fillRect(x, drawY, TILE, 3);
+            }
+            if (ch === "A") {
+              ctx.fillStyle = "#1a120c";
+              ctx.fillRect(x + 3, drawY + 3, 3, TILE - 3);
+              ctx.fillRect(x + 10, drawY + 3, 3, TILE - 3);
+            }
+          }
+        }
+      } else if (r >= 9 && ch !== "S" && ch !== "X") {
+        ctx.fillStyle = "rgba(0,0,0,0.28)";
+        ctx.fillRect(x, y, TILE, TILE);
+      }
+      if (ch === "S") {
+        const plateY = y + (room.plateSink || 0);
+        if (!blit(art.plate, x, plateY, TILE, TILE)) {
+          ctx.fillStyle = "#d7b45a";
+          ctx.fillRect(x + 2, plateY + 12, 12, 4);
+          ctx.fillStyle = "#8a6a28";
+          ctx.fillRect(x + 4, plateY + 8, 8, 4);
+        }
+      }
+      if (ch === "X") {
+        const doorW = 22;
+        const doorH = 36;
+        const dx = x + Math.floor((TILE - doorW) / 2);
+        const dy = y + TILE - doorH;
+        if (!blit(art.arch, dx, dy, doorW, doorH)) {
+          ctx.fillStyle = "#e6c36a";
+          ctx.fillRect(x + 2, y, 12, 16);
+          ctx.fillStyle = "#1a120c";
+          ctx.fillRect(x + 4, y + 2, 8, 12);
+          ctx.fillStyle = "#f2de9a";
+          ctx.fillRect(x + 6, y + 6, 4, 4);
+        }
+      }
+    }
+  }
+
+  for (const [key, x, y, w, h] of room.floorDress || []) {
+    blit(art[key], x, y, w, h);
+  }
+}
+
+function drawMotes() {
+  ctx.fillStyle = "#e6d2a8";
+  for (const mote of motes) {
+    ctx.globalAlpha = Math.max(0.2, mote.life / 12);
+    ctx.fillRect(Math.round(mote.x), Math.round(mote.y), 2, 2);
+  }
+  ctx.globalAlpha = 1;
+}
+
+function glyphRows(...rows) {
+  return rows.map((row) => {
+    let bits = 0;
+    const line = (row + ".....").slice(0, 5);
+    for (let i = 0; i < 5; i++) if (line[i] === "#") bits |= 1 << (4 - i);
+    return bits;
+  });
+}
+
+const GLYPH_W = 5;
+const GLYPH_H = 7;
+const GLYPH_GAP = 1;
+const GLYPHS = {
+  " ": glyphRows(".....", ".....", ".....", ".....", ".....", ".....", "....."),
+  "!": glyphRows("..#..", "..#..", "..#..", "..#..", "..#..", ".....", "..#.."),
+  ".": glyphRows(".....", ".....", ".....", ".....", ".....", "..#..", "..#.."),
+  ",": glyphRows(".....", ".....", ".....", ".....", "..#..", "..#..", ".#...",),
+  "/": glyphRows("....#", "...#.", "..#..", ".#...", "#....", ".....", "....."),
+  ":": glyphRows(".....", "..#..", "..#..", ".....", "..#..", "..#..", "....."),
+  "0": glyphRows(".###.", "#...#", "#..##", "#.#.#", "##..#", "#...#", ".###."),
+  "1": glyphRows("..#..", ".##..", "..#..", "..#..", "..#..", "..#..", ".###."),
+  "2": glyphRows(".###.", "#...#", "....#", "..##.", ".#...", "#....", "#####"),
+  "3": glyphRows(".###.", "#...#", "....#", "..##.", "....#", "#...#", ".###."),
+  "4": glyphRows("...#.", "..##.", ".#.#.", "#..#.", "#####", "...#.", "...#."),
+  "5": glyphRows("#####", "#....", "####.", "....#", "....#", "#...#", ".###."),
+  "6": glyphRows(".###.", "#....", "####.", "#...#", "#...#", "#...#", ".###."),
+  "7": glyphRows("#####", "....#", "...#.", "..#..", ".#...", "#....", "#...."),
+  "8": glyphRows(".###.", "#...#", "#...#", ".###.", "#...#", "#...#", ".###."),
+  "9": glyphRows(".###.", "#...#", "#...#", ".####", "....#", "#...#", ".###."),
+  A: glyphRows(".###.", "#...#", "#...#", "#####", "#...#", "#...#", "#...#"),
+  B: glyphRows("####.", "#...#", "#...#", "####.", "#...#", "#...#", "####."),
+  C: glyphRows(".###.", "#...#", "#....", "#....", "#....", "#...#", ".###."),
+  D: glyphRows("####.", "#...#", "#...#", "#...#", "#...#", "#...#", "####."),
+  E: glyphRows("#####", "#....", "####.", "#....", "#....", "#....", "#####"),
+  G: glyphRows(".###.", "#...#", "#....", "#.###", "#...#", "#...#", ".###."),
+  J: glyphRows("..###", "...#.", "...#.", "...#.", "#..#.", "#..#.", ".##.."),
+  M: glyphRows("#...#", "##.##", "#.#.#", "#...#", "#...#", "#...#", "#...#"),
+  O: glyphRows(".###.", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+  P: glyphRows("####.", "#...#", "#...#", "####.", "#....", "#....", "#...."),
+  R: glyphRows("####.", "#...#", "#...#", "####.", "#.#..", "#..#.", "#...#"),
+  S: glyphRows(".####", "#....", "####.", "....#", "....#", "#...#", ".###."),
+  T: glyphRows("#####", "..#..", "..#..", "..#..", "..#..", "..#..", "..#.."),
+  U: glyphRows("#...#", "#...#", "#...#", "#...#", "#...#", "#...#", ".###."),
+  V: glyphRows("#...#", "#...#", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+  X: glyphRows("#...#", "#...#", ".#.#.", "..#..", ".#.#.", "#...#", "#...#"),
+  a: glyphRows(".....", ".....", ".###.", "....#", ".####", "#...#", ".####"),
+  b: glyphRows("#....", "#....", "####.", "#...#", "#...#", "#...#", "####."),
+  c: glyphRows(".....", ".....", ".###.", "#....", "#....", "#....", ".###."),
+  d: glyphRows("....#", "....#", ".####", "#...#", "#...#", "#...#", ".####"),
+  e: glyphRows(".....", ".....", ".###.", "#...#", "#####", "#....", ".###."),
+  f: glyphRows("..##.", ".#...", "####.", ".#...", ".#...", ".#...", ".#..."),
+  g: glyphRows(".....", ".####", "#...#", "#...#", ".####", "....#", ".###."),
+  h: glyphRows("#....", "#....", "####.", "#...#", "#...#", "#...#", "#...#"),
+  i: glyphRows("..#..", ".....", ".##..", "..#..", "..#..", "..#..", ".###."),
+  j: glyphRows("...#.", ".....", "..##.", "...#.", "...#.", "#..#.", ".##.."),
+  l: glyphRows(".##..", "..#..", "..#..", "..#..", "..#..", "..#..", ".###."),
+  m: glyphRows(".....", ".....", "##.#.", "#.#.#", "#.#.#", "#...#", "#...#"),
+  n: glyphRows(".....", ".....", "####.", "#...#", "#...#", "#...#", "#...#"),
+  o: glyphRows(".....", ".....", ".###.", "#...#", "#...#", "#...#", ".###."),
+  p: glyphRows(".....", ".....", "####.", "#...#", "#...#", "####.", "#...."),
+  q: glyphRows(".....", ".....", ".####", "#...#", "#...#", ".####", "....#"),
+  r: glyphRows(".....", ".....", "####.", "#...#", "#....", "#....", "#...."),
+  s: glyphRows(".....", ".....", ".####", "#....", ".###.", "....#", "####."),
+  t: glyphRows(".#...", "####.", ".#...", ".#...", ".#...", ".#...", "..##."),
+  u: glyphRows(".....", ".....", "#...#", "#...#", "#...#", "#...#", ".####"),
+  v: glyphRows(".....", ".....", "#...#", "#...#", "#...#", ".#.#.", "..#.."),
+  x: glyphRows(".....", ".....", "#...#", ".#.#.", "..#..", ".#.#.", "#...#"),
+  z: glyphRows(".....", ".....", "#####", "...#.", "..#..", ".#...", "#####"),
+  "\u00e1": glyphRows("..#..", ".###.", "#...#", "#...#", "#####", "#...#", "#...#"),
+  "\u00e3": glyphRows("#..#.", ".###.", "#...#", "#...#", ".####", "#...#", ".####"),
+  "\u00e7": glyphRows(".....", "..#..", ".###.", "#....", "#....", "#....", ".###."),
+  "\u00ea": glyphRows(".....", "..#..", ".###.", "#...#", "#####", "#....", ".###."),
+  "\u00f3": glyphRows("..#..", ".###.", "#...#", "#...#", "#...#", "#...#", ".###."),
+  "\u00f5": glyphRows("#..#.", ".###.", "#...#", "#...#", ".####", "#...#", ".####"),
+};
+
+function bitmapTextWidth(text, scale) {
+  let w = 0;
+  for (let i = 0; i < text.length; i++) {
+    w += (GLYPH_W + GLYPH_GAP) * scale;
+    if (i === text.length - 1) w -= GLYPH_GAP * scale;
+  }
+  return w;
+}
+
+function drawBitmapText(text, x, y, color, scale) {
+  const sc = scale || 1;
+  ctx.fillStyle = color;
+  let cx = x;
+  for (const ch of text) {
+    const g = GLYPHS[ch] || GLYPHS[" "];
+    for (let row = 0; row < GLYPH_H; row++) {
+      const bits = g[row];
+      for (let col = 0; col < GLYPH_W; col++) {
+        if (bits & (1 << (GLYPH_W - 1 - col))) {
+          ctx.fillRect(cx + col * sc, y + row * sc, sc, sc);
+        }
+      }
+    }
+    cx += (GLYPH_W + GLYPH_GAP) * sc;
+  }
+}
+
+function drawHeart(x, y, filled) {
+  ctx.fillStyle = filled ? "#d4533c" : "#3a2a24";
+  ctx.fillRect(x + 1, y, 2, 1);
+  ctx.fillRect(x + 5, y, 2, 1);
+  ctx.fillRect(x, y + 1, 8, 2);
+  ctx.fillRect(x + 1, y + 3, 6, 1);
+  ctx.fillRect(x + 2, y + 4, 4, 1);
+  ctx.fillRect(x + 3, y + 5, 2, 1);
+}
+
+function drawCoin(x, y) {
+  ctx.fillStyle = "#a67c2d";
+  ctx.fillRect(x + 2, y, 6, 8);
+  ctx.fillRect(x + 1, y + 2, 8, 4);
+  ctx.fillStyle = "#e6c36a";
+  ctx.fillRect(x + 3, y + 1, 4, 6);
+  ctx.fillStyle = "#f6e2a4";
+  ctx.fillRect(x + 4, y + 2, 2, 3);
+}
+
+function drawPickups() {
+  const room = rooms[state.room];
+  if (!room) return;
+  for (const item of room.pickups) {
+    if (item.taken) continue;
+    const bob = Math.sin((state.tick + item.x) / 9) > 0 ? 0 : 1;
+    if (item.kind === "coin") drawCoin(item.x, item.y + bob);
+    else drawHeart(item.x, item.y + bob, true);
+  }
+}
+
+function drawHud() {
+  for (let i = 0; i < 3; i++) drawHeart(6 + i * 10, 6, i < state.hp);
+  drawCoin(40, 4);
+  drawBitmapText(String(state.coins), 52, 6, "#f0e2cc", 1);
+  const sec = Math.max(0, Math.ceil(state.time / 60));
+  const label = Math.floor(sec / 60) + ":" + String(sec % 60).padStart(2, "0");
+  drawBitmapText(label, 312 - bitmapTextWidth(label, 1), 6, "#f0e2cc", 1);
+  if (rooms[state.room]) {
+    drawBitmapText(rooms[state.room].name, 8, 16, "#f0e2cc", 1);
+    if (state.hintT > 0) drawBitmapText(rooms[state.room].hint, 8, 180, "#cbb89a", 1);
+  }
+}
+
+function drawOverlay(title, sub) {
+  ctx.fillStyle = "rgba(12, 8, 6, 0.72)";
+  ctx.fillRect(0, 0, 320, 192);
+  drawBitmapText(title, 16, 56, "#f3e2c4", 2);
+  for (let i = 0; i < sub.length; i++) {
+    drawBitmapText(sub[i], 16, 98 + i * 10, "#e0c088", 1);
+  }
+}
+
+function draw() {
+  ctx.save();
+  ctx.imageSmoothingEnabled = true;
+  if (state.shake > 0.4) {
+    ctx.translate((Math.random() - 0.5) * state.shake, (Math.random() - 0.5) * state.shake);
+  }
+  if (rooms.length === 0) rooms = cloneRooms();
+  drawRoom();
+  drawPickups();
+  for (const guard of rooms[state.room].guards) {
+    if (!guard.alive && guard.dying <= 0) continue;
+    if (guard.dying > 0 && Math.floor(state.tick / 2) % 2 === 1) continue;
+    if (guard.attack > 16) {
+      ctx.fillStyle = "#f0e2cc";
+      ctx.fillRect(Math.round(guard.x + 4), Math.round(guard.y - 6), 2, 4);
+    }
+    drawActor(guard, "guard", guard.attack > 0 && guard.attack < 16);
+  }
+  if (state.inv === 0 || Math.floor(state.tick / 3) % 2 === 0) {
+    drawActor(player, "hero", player.attack > 4 && player.attack < 13);
+  }
+  if (player.attack > 6 && player.attack < 12 && !player.hang) {
+    const box = swordBox(player, 22);
+    ctx.fillStyle = "rgba(255, 244, 210, 0.9)";
+    ctx.fillRect(Math.round(box.x), Math.round(box.y + 2), box.w, 2);
+  }
+  drawMotes();
+  drawHud();
+  if (state.fade > 0.01) {
+    ctx.fillStyle = "rgba(8, 6, 5, " + state.fade + ")";
+    ctx.fillRect(-8, -8, 336, 208);
+  }
+  if (state.mode === "title") {
+    drawOverlay("Pátio", ["Dez salas. Ilustração anime.", "Enter ou Jogar começa."]);
+  } else if (state.mode === "dead") {
+    drawOverlay("Caiu", [state.msg, "Enter tenta de novo."]);
+  } else if (state.mode === "win") {
+    const left = Math.max(0, Math.ceil(state.time / 60));
+    drawOverlay("Passou", [
+      "Moedas " + state.coins + " / " + state.totalCoins + ".",
+      "Sobrou " + left + "s. Enter recomeça.",
+    ]);
+  }
+  ctx.restore();
+}
+
+let running = true;
+function loop(timestamp) {
+  if (!lastTime) lastTime = timestamp;
+  let delta = timestamp - lastTime;
+  lastTime = timestamp;
+  if (delta > 100) delta = 100;
+  if (running) {
+    accumulator += delta;
+    while (accumulator >= STEP) {
+      update();
+      accumulator -= STEP;
+    }
+  }
+  draw();
+  requestAnimationFrame(loop);
+}
+
+window.addEventListener("keydown", (event) => {
+  if (!KEYS.includes(event.code)) return;
+  event.preventDefault();
+  if (!held[event.code]) queued[event.code] = true;
+  held[event.code] = true;
+  armAudio();
+});
+window.addEventListener("keyup", (event) => {
+  if (KEYS.includes(event.code)) {
+    event.preventDefault();
+    held[event.code] = false;
+  }
+});
+
+document.querySelectorAll("button[data-key]").forEach((button) => {
+  const code = button.dataset.key;
+  const down = (event) => {
+    event.preventDefault();
+    if (!held[code]) queued[code] = true;
+    held[code] = true;
+    armAudio();
+  };
+  const up = (event) => {
+    event.preventDefault();
+    held[code] = false;
+  };
+  button.addEventListener("pointerdown", down);
+  button.addEventListener("pointerup", up);
+  button.addEventListener("pointerleave", up);
+  button.addEventListener("pointercancel", up);
+});
+
+document.getElementById("play").addEventListener("click", () => {
+  armAudio();
+  canvas.focus();
+  resetGame();
+});
+
+canvas.addEventListener("pointerdown", () => canvas.focus());
+
+window.__patio = {
+  held, queued, player, state, update, draw,
+  setRunning: (value) => { running = value; },
+  art, artState,
+  get rooms() { return rooms; },
+};
+
+rooms = cloneRooms();
+loadArt();
+canvas.focus();
+requestAnimationFrame(loop);
+</script>
+</body>
+</html>
